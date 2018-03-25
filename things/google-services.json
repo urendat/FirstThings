@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "974187554277",
+    "firebase_url": "https://firstthings-ce33c.firebaseio.com",
+    "project_id": "firstthings-ce33c",
+    "storage_bucket": "firstthings-ce33c.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:974187554277:android:7a32e6e56a177f47",
+        "android_client_info": {
+          "package_name": "com.urendat.firstthings"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "974187554277-50vo953qjoou56kab0sje0tu9p941rd3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.urendat.firstthings",
+            "certificate_hash": "75a99ddee1e4cbbf34e5891eb4b33506270bc0db"
+          }
+        },
+        {
+          "client_id": "974187554277-bdv4fefdlfs32silsvlirus8k0l2g9sj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDotLl-KGaj8Z8j45HCNCvwKmeKz_dGe1M"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "974187554277-bdv4fefdlfs32silsvlirus8k0l2g9sj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
