@@ -1,11 +1,17 @@
 package com.urendat.firstthings;
 
 import android.app.Activity;
+import android.media.MediaPlayer;
+import android.media.TimedMetaData;
 import android.os.Bundle;
 import android.util.Log;
+import android.widget.CompoundButton;
+import android.widget.SeekBar;
+import android.widget.Switch;
+import android.widget.TextView;
 
 import com.google.android.things.pio.Gpio;
-import com.google.android.things.pio.PeripheralManagerService;
+import com.google.android.things.pio.PeripheralManager;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
@@ -16,20 +22,125 @@ import java.io.IOException;
 
 public class MainActivity extends Activity {
   private static final String TAG = MainActivity.class.getSimpleName();
-  private static final int INTERVAL_BETWEEN_BLINKS_MS = 1000;
-  private Gpio mRedLedGpio;
-  private Gpio mGreenLedGpio;
+  private static final int INTERVAL_BETWEEN_BLINKS_MS = 2000;
+  protected Gpio mRedLedGpio;
+  protected Gpio mGreenLedGpio;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
 
-    PeripheralManagerService service = new PeripheralManagerService();
+    PeripheralManager service = PeripheralManager.getInstance();
 
     // Run this method to print the RPi GPIO list to the Logcat console
-    // Log.d(TAG, "Available GPIO: " + service.getGpioList());
+    Log.d(TAG, "Available GPIO: " + service.getGpioList());
+
+    mPlayer = MediaPlayer.create(this.getBaseContext(), R.raw.thunderstruck);
+    mPlayer.setVolume(0.75f, 0.75f);
+    mPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+      @Override
+      public boolean onError(MediaPlayer mp, int what, int extra)
+      {
+        Log.d(TAG, "Media Player error, position = " + mp.getCurrentPosition());
+        return false;
+      }
+    });
+
+//    LinearLayout mainView = (LinearLayout) findViewById(R.id.activity_main);
+//    LayoutInflater inflater = getLayoutInflater();
+//    View childView = inflater.inflate(R.layout.activity_main, mainView, false);
+//    ToggleButton playButton = childView.findViewById(R.id.playButton);
+//    playButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+//      public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+//        if (isChecked) {
+//          // The toggle is enabled
+//          Log.d(TAG, "PLAY ON");
+//
+//        } else {
+//          // The toggle is disabled
+//          Log.d(TAG, "PLAY OFF");
+//          if (mPlayer.isPlaying())
+//            mPlayer.pause();
+//        }
+//      }
+//    });
+
+    final LightRunner lightRunner = new LightRunner();
+    final Thread t = new Thread(lightRunner);
+
+    final TextView playMessage = findViewById(R.id.playMessage);
+    final Switch playSwitch = findViewById(R.id.playSwitch);
+    playSwitch.setOnCheckedChangeListener(
+      new CompoundButton.OnCheckedChangeListener() {
+        @Override
+        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+          if (playSwitch.isChecked()) {
+            playMessage.setText("Play On");
+            Log.d(TAG, "Play switch: " + playSwitch.getTextOn());
+
+            // Start lights if this is not starting from Paused state
+            if (t.getState() == Thread.State.NEW) {
+              t.start();
+            }
+
+            lightRunner.stopRunning = false;
+            mPlayer.start();
+          }
+          else {
+            playMessage.setText("Play Off");
+            Log.d(TAG, "Play switch: " + playSwitch.getTextOff());
+            if (mPlayer.isPlaying()) {
+              mPlayer.pause();
+            }
+            else {
+              mPlayer.stop();
+            }
+            lightRunner.stopRunning = true;
+          }
+        }
+      });
+
+    SeekBar skBar = findViewById(R.id.seekBar);
+    skBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+      @Override
+      public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+        frequency = progress;
+      }
+
+      @Override
+      public void onStartTrackingTouch(SeekBar seekBar) {
+      }
+
+      @Override
+      public void onStopTrackingTouch(SeekBar seekBar) {
+      }
+    });
+
+    // TODO: Run the MediaPlayer as a Service, no on the UI thread.
+    //  https://developer.android.com/guide/topics/media/mediaplayer.html
+    // TODO: Use MediaPlayer Listeners to track state changes and monitor them here?
+
+    mPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+      @Override
+      public void onCompletion(MediaPlayer mp) {
+        Log.d(TAG, "Play complete");
+        mp.reset();
+        t.interrupt();
+      }
+    });
+    //  setOnInfoListener()
+    mPlayer.setOnTimedMetaDataAvailableListener(new MediaPlayer.OnTimedMetaDataAvailableListener() {
+      @Override
+      public void onTimedMetaDataAvailable(MediaPlayer mp, TimedMetaData data) {
+        Log.d(TAG, "Timed Metadata: " + data.getTimestamp());
+      }
+    });
+
+    //  https://github.com/googlesamples/android-SimpleMediaPlayer/
 
     try {
+      Log.d(TAG, "Open GPIO: " + BoardDefaults.getGPIOForRedLED() + BoardDefaults.getGPIOForGreenLED());
       mRedLedGpio = service.openGpio(BoardDefaults.getGPIOForRedLED());
       mRedLedGpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
       mGreenLedGpio = service.openGpio(BoardDefaults.getGPIOForGreenLED());
@@ -92,6 +203,9 @@ public class MainActivity extends Activity {
   protected void onDestroy() {
     super.onDestroy();
 
+    if (mPlayer != null)
+      mPlayer.release();
+
     try {
       if (mRedLedGpio != null) {
         mRedLedGpio.close();
@@ -110,7 +224,7 @@ public class MainActivity extends Activity {
   }
 
 
-  private void setLed(Gpio ledGpio, boolean newState) {
+  protected void setLed(Gpio ledGpio, boolean newState) {
     try {
       ledGpio.setValue(newState);
     } catch (IOException e) {
@@ -159,6 +273,25 @@ public class MainActivity extends Activity {
     return false;
   }
 
+  private class LightRunner implements Runnable {
+    public boolean stopRunning = false;
+
+    @Override
+    public void run() {
+      try {
+        while (!stopRunning) {
+          Thread.sleep(100 - frequency);
+          Log.d(TAG, "Turn on light");
+          setLed(mGreenLedGpio, true);
+          Thread.sleep(50);
+          Log.d(TAG, "Turn off light");
+          setLed(mGreenLedGpio, false);
+        }
+      } catch (Throwable t) {
+      }
+    }
+  }
+
   // UUID
   private static final String UUID_KEY = "_UUID";
   private static final String PREFS_NAME = "MyPrefs";
@@ -182,4 +315,6 @@ public class MainActivity extends Activity {
   private DatabaseReference mCurrentGreenStatusRef;
   private DatabaseReference mDesiredGreenStatusRef;
 
+  private MediaPlayer mPlayer;
+  int frequency = 50;
 }
