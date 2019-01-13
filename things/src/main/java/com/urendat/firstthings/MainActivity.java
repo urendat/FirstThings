@@ -1,13 +1,8 @@
 package com.urendat.firstthings;
 
 import android.app.Activity;
-import android.media.MediaPlayer;
-import android.media.TimedMetaData;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.CompoundButton;
-import android.widget.SeekBar;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import com.google.android.things.pio.Gpio;
@@ -18,13 +13,29 @@ import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
 
+import org.eclipse.paho.android.service.MqttAndroidClient;
+import org.eclipse.paho.client.mqttv3.IMqttActionListener;
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
+
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.text.DateFormat;
+import java.util.Date;
 
 public class MainActivity extends Activity {
   private static final String TAG = MainActivity.class.getSimpleName();
-  private static final int INTERVAL_BETWEEN_BLINKS_MS = 2000;
   protected Gpio mRedLedGpio;
   protected Gpio mGreenLedGpio;
+
+  // MQTT client
+  MqttAndroidClient client;
+  IMqttToken token;
+  MqttConnectOptions options;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -36,108 +47,8 @@ public class MainActivity extends Activity {
     // Run this method to print the RPi GPIO list to the Logcat console
     Log.d(TAG, "Available GPIO: " + service.getGpioList());
 
-    mPlayer = MediaPlayer.create(this.getBaseContext(), R.raw.thunderstruck);
-    mPlayer.setVolume(0.75f, 0.75f);
-    mPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-      @Override
-      public boolean onError(MediaPlayer mp, int what, int extra)
-      {
-        Log.d(TAG, "Media Player error, position = " + mp.getCurrentPosition());
-        return false;
-      }
-    });
-
-//    LinearLayout mainView = (LinearLayout) findViewById(R.id.activity_main);
-//    LayoutInflater inflater = getLayoutInflater();
-//    View childView = inflater.inflate(R.layout.activity_main, mainView, false);
-//    ToggleButton playButton = childView.findViewById(R.id.playButton);
-//    playButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-//      public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-//        if (isChecked) {
-//          // The toggle is enabled
-//          Log.d(TAG, "PLAY ON");
-//
-//        } else {
-//          // The toggle is disabled
-//          Log.d(TAG, "PLAY OFF");
-//          if (mPlayer.isPlaying())
-//            mPlayer.pause();
-//        }
-//      }
-//    });
-
-    final LightRunner lightRunner = new LightRunner();
-    final Thread t = new Thread(lightRunner);
-
-    final TextView playMessage = findViewById(R.id.playMessage);
-    final Switch playSwitch = findViewById(R.id.playSwitch);
-    playSwitch.setOnCheckedChangeListener(
-      new CompoundButton.OnCheckedChangeListener() {
-        @Override
-        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-          if (playSwitch.isChecked()) {
-            playMessage.setText("Play On");
-            Log.d(TAG, "Play switch: " + playSwitch.getTextOn());
-
-            // Start lights if this is not starting from Paused state
-            if (t.getState() == Thread.State.NEW) {
-              t.start();
-            }
-
-            lightRunner.stopRunning = false;
-            mPlayer.start();
-          }
-          else {
-            playMessage.setText("Play Off");
-            Log.d(TAG, "Play switch: " + playSwitch.getTextOff());
-            if (mPlayer.isPlaying()) {
-              mPlayer.pause();
-            }
-            else {
-              mPlayer.stop();
-            }
-            lightRunner.stopRunning = true;
-          }
-        }
-      });
-
-    SeekBar skBar = findViewById(R.id.seekBar);
-    skBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-      @Override
-      public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-        frequency = progress;
-      }
-
-      @Override
-      public void onStartTrackingTouch(SeekBar seekBar) {
-      }
-
-      @Override
-      public void onStopTrackingTouch(SeekBar seekBar) {
-      }
-    });
-
-    // TODO: Run the MediaPlayer as a Service, no on the UI thread.
-    //  https://developer.android.com/guide/topics/media/mediaplayer.html
-    // TODO: Use MediaPlayer Listeners to track state changes and monitor them here?
-
-    mPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-      @Override
-      public void onCompletion(MediaPlayer mp) {
-        Log.d(TAG, "Play complete");
-        mp.reset();
-        t.interrupt();
-      }
-    });
-    //  setOnInfoListener()
-    mPlayer.setOnTimedMetaDataAvailableListener(new MediaPlayer.OnTimedMetaDataAvailableListener() {
-      @Override
-      public void onTimedMetaDataAvailable(MediaPlayer mp, TimedMetaData data) {
-        Log.d(TAG, "Timed Metadata: " + data.getTimestamp());
-      }
-    });
-
-    //  https://github.com/googlesamples/android-SimpleMediaPlayer/
+    // MQTT
+    connectMqtt();
 
     try {
       Log.d(TAG, "Open GPIO: " + BoardDefaults.getGPIOForRedLED() + BoardDefaults.getGPIOForGreenLED());
@@ -148,6 +59,8 @@ public class MainActivity extends Activity {
     } catch (IOException e) {
       Log.e(TAG, "Error on PeripheralIO API", e);
     }
+
+    brokerStatus = findViewById(R.id.broker);
 
     FirebaseDatabase database = FirebaseDatabase.getInstance();
 
@@ -203,9 +116,6 @@ public class MainActivity extends Activity {
   protected void onDestroy() {
     super.onDestroy();
 
-    if (mPlayer != null)
-      mPlayer.release();
-
     try {
       if (mRedLedGpio != null) {
         mRedLedGpio.close();
@@ -218,9 +128,109 @@ public class MainActivity extends Activity {
     }
   }
 
+  private void connectMqtt()
+  {
+//    String clientId = MqttClient.generateClientId();
+    String clientId = "PiThings";
+    String brokerUri = "tcp://192.168.1.66:1883";
+    client = new MqttAndroidClient(this.getApplicationContext(), brokerUri, clientId);
+    client.setCallback(new MqttCallback() {
+      @Override
+      public void connectionLost(Throwable throwable) {
+        updateBrokerStatus("MQTT connection lost");
+        Log.e(TAG, "MQTT connection lost", throwable);
+      }
+
+      @Override
+      public void messageArrived(String s, MqttMessage mqttMessage) throws Exception {
+        updateBrokerStatus("MQTT connection OK");
+        Log.d(TAG, mqttMessage.toString());
+      }
+
+      @Override
+      public void deliveryComplete(IMqttDeliveryToken iMqttDeliveryToken) {
+
+      }
+    });
+
+    try {
+      options = new MqttConnectOptions();
+      options.setUserName("urendat");
+      options.setPassword("Smegtoz1".toCharArray());
+      token = client.connect(options);
+      token.setActionCallback(new IMqttActionListener() {
+        @Override
+        public void onSuccess(IMqttToken asyncActionToken) {
+          // We are connected
+          Log.d(TAG, "MQTT broker connection success");
+          subscribeToTopic();
+        }
+
+        @Override
+        public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+          // Something went wrong e.g. connection timeout or firewall problems
+          Log.d(TAG, "MQTT broker connection failed");
+        }
+      });
+    } catch (MqttException e) {
+      Log.e(TAG, "Error on MQTT initialization", e);
+    }
+
+  }
+
+  // 15:47:26 MQT: tele/sonoff/STATE = {"Time":"2019-01-12T15:47:26","Uptime":"0T00:03:23","Vcc":3.486,"POWER":"OFF",
+  // "Wifi":{"AP":1,"SSId":"TANNET2","BSSId":"C4:3D:C7:70:28:00","Channel":1,"RSSI":74}}
+  private void subscribeToTopic() {
+    try {
+      client.subscribe("tele/sonoff/STATE", 0, null, new IMqttActionListener() {
+        @Override
+        public void onSuccess(IMqttToken asyncActionToken) {
+          Log.d(TAG,"Subscribed!");
+        }
+
+        @Override
+        public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+          Log.d(TAG, "Subscribed fail!");
+        }
+      });
+
+    } catch (MqttException e) {
+      Log.e(TAG,"Exception subscribing", e);
+    }
+  }
+
+  private void updateBrokerStatus(String status)
+  {
+    brokerStatus.setText(status + " : " + DateFormat.getDateTimeInstance().format(new Date())); // No localization is possible here
+  }
+
   private void handleNewState(Gpio ledGpio, Boolean desiredStatus) {
     Log.d(TAG, "Set value for = " + ledGpio.getName() + " to " + desiredStatus.toString());
     setLed(ledGpio, desiredStatus.booleanValue());
+
+    // Check connection
+    if (!client.isConnected()) {
+      try {
+        client.connect(options);
+      } catch (MqttException e) {
+        Log.e(TAG, "Error on MQTT connection", e);
+        return;
+      }
+    }
+
+    String topic = "cmnd/sonoff/power";
+    String payload = desiredStatus.booleanValue() ? "on" : "off";
+    byte[] encodedPayload = new byte[0];
+    try {
+      encodedPayload = payload.getBytes("UTF-8");
+      MqttMessage message = new MqttMessage(encodedPayload);
+      // Retained message is cached on broker and last good message is sent to newly connected clients
+      // message.setRetained(true);
+      client.publish(topic, message);
+    } catch (UnsupportedEncodingException | MqttException e) {
+      Log.e(TAG, "Exception on MQTT send message", e);
+    }
+
   }
 
 
@@ -273,28 +283,9 @@ public class MainActivity extends Activity {
     return false;
   }
 
-  private class LightRunner implements Runnable {
-    public boolean stopRunning = false;
-
-    @Override
-    public void run() {
-      try {
-        while (!stopRunning) {
-          Thread.sleep(100 - frequency);
-          Log.d(TAG, "Turn on light");
-          setLed(mGreenLedGpio, true);
-          Thread.sleep(50);
-          Log.d(TAG, "Turn off light");
-          setLed(mGreenLedGpio, false);
-        }
-      } catch (Throwable t) {
-      }
-    }
-  }
-
   // UUID
-  private static final String UUID_KEY = "_UUID";
-  private static final String PREFS_NAME = "MyPrefs";
+//  private static final String UUID_KEY = "_UUID";
+//  private static final String PREFS_NAME = "MyPrefs";
 
   private String getDeviceId() {
 //    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, 0);
@@ -306,6 +297,11 @@ public class MainActivity extends Activity {
     return "af1aac79-19e1-461e-8b99-7c4861fa31f1";
   }
 
+//  class ClientCallback extends MqttCallback
+//  {
+//
+//  }
+
   // Firebase database interface
   private boolean mRedStatus = false;
   private DatabaseReference mCurrentRedStatusRef;
@@ -315,6 +311,5 @@ public class MainActivity extends Activity {
   private DatabaseReference mCurrentGreenStatusRef;
   private DatabaseReference mDesiredGreenStatusRef;
 
-  private MediaPlayer mPlayer;
-  int frequency = 50;
+  TextView brokerStatus;
 }

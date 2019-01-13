@@ -16,13 +16,13 @@
         android:paddingHorizontal="10dp"
         />
 
-<!--    <ToggleButton
-        android:id="@+id/playButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="PlayButton"
-        android:textOff="Stop"
-        android:textOn="Play"/> -->
+    <!--         <ToggleButton
+            android:id="@+id/playButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="PlayButton"
+            android:textOff="Stop"
+            android:textOn="Play"/>
 
     <Switch
         android:id="@+id/playSwitch"
@@ -48,5 +48,48 @@
         android:layout_marginLeft="25dp"
         android:layout_marginRight="25dp"
         android:max="100"/>
+ -->
+
+    <TableLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:stretchColumns="1">
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+        <TextView
+            android:text="@string/broker"
+            android:padding="3dip" />
+        <TextView
+            android:id="@+id/broker"
+            android:gravity="right"
+            android:padding="3dip" />
+        </TableRow>
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+        <TextView
+            android:text="@string/name_128"
+            android:padding="3dip" />
+        <TextView
+            android:id="@+id/state128"
+            android:gravity="right"
+            android:padding="3dip" />
+        </TableRow>
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="14dp"/>
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </TableLayout>
 
 </LinearLayout>
